@@ -12,6 +12,9 @@ namespace SplunkToSequenceConverter
 {
     class Program
     {
+        private static readonly bool PrintThreadId = true;
+        private static readonly bool UseActualLogicExecutionFlow = false;
+
         private const string PfpWebsite = "pfp";
 
         private static readonly Regex PpfResponsePattern =
@@ -113,27 +116,28 @@ namespace SplunkToSequenceConverter
 
             if (PpfResponsePattern.IsMatch(message))
             {
-                foreach (var result in CreatePfpResponseActivity(message, token, lineIndex, lines))
-                {
-                    yield return result;
-                }
+                var results = CreatePfpResponseActivity(message, token, lineIndex, lines).ToArray();
 
-                //yield return CreatePfpResponseActivity(message, token, lineIndex, lines);
+                yield return results[0];
+
+                if (UseActualLogicExecutionFlow)
+                    yield return results[1];
             }
 
 
-            //if (PfpRequestPattern.IsMatch(message))
-            //     yield return CreatePfpRequestActivity(message, token);
+            if (!UseActualLogicExecutionFlow && PfpRequestPattern.IsMatch(message))
+                yield return CreatePfpRequestActivity(message, token);
 
 
-            //if (token["RESULTS_CACHED"] != null)
-            //    yield return CreateCachedRequestAction(token);
+            if (token["RESULTS_CACHED"] != null)
+                yield return CreateCachedRequestAction(token);
         }
 
         private static Activity CreateCachedRequestAction(JToken token)
         {
             var url = (string)token["API_CALL"];
             var method = (string)token["METHOD"];
+            var threadId = GetThreadId(token);
 
             var info = ParseRequestInfo(url, method);
 
@@ -141,14 +145,20 @@ namespace SplunkToSequenceConverter
             {
                 From = PfpWebsite,
                 To = PfpWebsite,
-                Message = $"Found in cache: {info.ServiceName} {method.ToUpper()} {info.Url}"
+                Message = $"T:{threadId}, Found in cache: {info.ServiceName} {method.ToUpper()} {info.Url}"
             };
+        }
+
+        private static string GetThreadId(JToken token)
+        {
+            return PrintThreadId? (string)token["a_thread"] : string.Empty;
         }
 
         private static Activity CreatePfpRequestActivity(string message, JToken token)
         {
             var match = PfpRequestPattern.Match(message);
 
+            var threadId = GetThreadId(token);
             var method = match.Groups["method"].Value;
             var url = match.Groups["url"].Value;
 
@@ -158,7 +168,7 @@ namespace SplunkToSequenceConverter
             {
                 From = PfpWebsite,
                 To = info.ServiceName,
-                Message = $"{method.ToUpper()} {info.Url}"
+                Message = $"T:{threadId}, {method.ToUpper()} {info.Url}"
             };
         }
 
@@ -169,16 +179,21 @@ namespace SplunkToSequenceConverter
             var url = match.Groups["url"].Value;
             var duration = match.Groups["duration"].Value;
             var status = match.Groups["status"].Value;
+            var threadId = GetThreadId(token);
 
             var requestToken = FindRequest(url, lineIndex + 1, lines);
             var requestMessage = (string)requestToken["a_msg"];
             var requestMatch = PfpRequestPattern.Match(requestMessage);
             var request = ParseRequestInfo(requestMatch.Groups["url"].Value, requestMatch.Groups["method"].Value);
 
+            var activitymessage = UseActualLogicExecutionFlow
+                ? $"T:{threadId}, HTTP 1.1 {(int) Enum.Parse(typeof(HttpStatusCode), status, true)} ({status})"
+                : $"T:{threadId}, HTTP 1.1 {(int) Enum.Parse(typeof(HttpStatusCode), status, true)} ({status}), {request.ServiceName} {request.Method.ToUpper()} {request.Url}";
+
             yield return new Activity
             {
                 From = request.ServiceName,
-                Message = $"{request.Method.ToUpper()} {(int)Enum.Parse(typeof(HttpStatusCode), status, true)} ({status}), {duration}ms",
+                Message = activitymessage,
                 To = PfpWebsite
             };
 
