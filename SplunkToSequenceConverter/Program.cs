@@ -181,22 +181,49 @@ namespace SplunkToSequenceConverter
             var threadId = GetThreadId(token);
 
             var requestToken = FindRequest(url, lineIndex + 1, lines);
-            var requestMessage = (string)requestToken["a_msg"];
-            var requestMatch = PfpRequestPattern.Match(requestMessage);
-            var request = ParseRequestInfo(requestMatch.Groups["url"].Value, requestMatch.Groups["method"].Value);
 
-            var activitymessage = useLogicalExecutionFlow
-                ? $"{threadId} HTTP 1.1 {(int) Enum.Parse(typeof(HttpStatusCode), status, true)} ({status})"
-                : $"{threadId} HTTP 1.1 {(int) Enum.Parse(typeof(HttpStatusCode), status, true)} ({status}), {request.ServiceName} {request.Method.ToUpper()} {request.Url}";
-
-            yield return new Activity
+            if (requestToken != null)
             {
-                From = request.ServiceName,
-                Message = activitymessage,
-                To = PfpWebsite
-            };
+                var requestMessage = (string)requestToken["a_msg"];
+                var requestMatch = PfpRequestPattern.Match(requestMessage);
+                var request = ParseRequestInfo(requestMatch.Groups["url"].Value, requestMatch.Groups["method"].Value);
 
-            yield return CreatePfpRequestActivity(requestMessage, requestToken);
+                var activitymessage = useLogicalExecutionFlow
+                    ? $"{threadId} HTTP 1.1 {(int)Enum.Parse(typeof(HttpStatusCode), status, true)} ({status})"
+                    : $"{threadId} HTTP 1.1 {(int)Enum.Parse(typeof(HttpStatusCode), status, true)} ({status}), {request.ServiceName} {request.Method.ToUpper()} {request.Url}";
+
+                yield return new Activity
+                {
+                    From = request.ServiceName,
+                    Message = activitymessage,
+                    To = PfpWebsite
+                };
+
+                yield return CreatePfpRequestActivity(requestMessage, requestToken);
+            }
+            else
+            {
+                var activitymessage = useLogicalExecutionFlow
+                    ? $"{threadId} HTTP 1.1 {(int)Enum.Parse(typeof(HttpStatusCode), status, true)} ({status})"
+                    : $"{threadId} HTTP 1.1 {(int)Enum.Parse(typeof(HttpStatusCode), status, true)} ({status}), {match.Groups["method"].Value.ToUpper()} {url}";
+
+                yield return new Activity
+                {
+                    From = "Unknown",
+                    Message = activitymessage,
+                    To = PfpWebsite
+                };
+
+                yield return new Activity
+                {
+                    From = PfpWebsite,
+                    Message = $"{match.Groups["method"].Value.ToUpper()} {url}",
+                    To = "Unknown"
+                };
+
+
+            }
+
         }
 
         private static JToken FindRequest(string url, int startIndex, JToken[] lines)
