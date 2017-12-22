@@ -12,8 +12,8 @@ namespace SplunkToSequenceConverter
 {
     class Program
     {
-        private static readonly bool PrintThreadId = true;
-        private static readonly bool UseActualLogicExecutionFlow = false;
+        private static readonly bool PrintThreadId = false;
+        private static bool useLogicalExecutionFlow;
 
         private const string PfpWebsite = "pfp";
 
@@ -36,7 +36,7 @@ namespace SplunkToSequenceConverter
         static void Main(string[] args)
         {
 
-            if (args.Length != 2)
+            if (args.Length < 2)
             {
                 Console.WriteLine("Splunk query: index=* a_rid=<guid> AND (a_logger=ApiHttpClient OR a_logger=CacheForRequestHandler)");
                 Console.WriteLine("Usage:");
@@ -46,6 +46,7 @@ namespace SplunkToSequenceConverter
 
             var logFile = args[0];
             var dstFile = args[1];
+            useLogicalExecutionFlow = args.Length < 3 || args.Length > 2 && args[2] == "logical";
 
             var tokens =
                 (from item in File.ReadAllLines(logFile)
@@ -120,12 +121,12 @@ namespace SplunkToSequenceConverter
 
                 yield return results[0];
 
-                if (UseActualLogicExecutionFlow)
+                if (useLogicalExecutionFlow)
                     yield return results[1];
             }
 
 
-            if (!UseActualLogicExecutionFlow && PfpRequestPattern.IsMatch(message))
+            if (!useLogicalExecutionFlow && PfpRequestPattern.IsMatch(message))
                 yield return CreatePfpRequestActivity(message, token);
 
 
@@ -145,13 +146,13 @@ namespace SplunkToSequenceConverter
             {
                 From = PfpWebsite,
                 To = PfpWebsite,
-                Message = $"T:{threadId}, Found in cache: {info.ServiceName} {method.ToUpper()} {info.Url}"
+                Message = $"{threadId} Found in cache: {info.ServiceName} {method.ToUpper()} {info.Url}"
             };
         }
 
         private static string GetThreadId(JToken token)
         {
-            return PrintThreadId? (string)token["a_thread"] : string.Empty;
+            return PrintThreadId? "T:" + (string)token["a_thread"] : string.Empty;
         }
 
         private static Activity CreatePfpRequestActivity(string message, JToken token)
@@ -168,7 +169,7 @@ namespace SplunkToSequenceConverter
             {
                 From = PfpWebsite,
                 To = info.ServiceName,
-                Message = $"T:{threadId}, {method.ToUpper()} {info.Url}"
+                Message = $"{threadId} {method.ToUpper()} {info.Url}"
             };
         }
 
@@ -186,9 +187,9 @@ namespace SplunkToSequenceConverter
             var requestMatch = PfpRequestPattern.Match(requestMessage);
             var request = ParseRequestInfo(requestMatch.Groups["url"].Value, requestMatch.Groups["method"].Value);
 
-            var activitymessage = UseActualLogicExecutionFlow
-                ? $"T:{threadId}, HTTP 1.1 {(int) Enum.Parse(typeof(HttpStatusCode), status, true)} ({status})"
-                : $"T:{threadId}, HTTP 1.1 {(int) Enum.Parse(typeof(HttpStatusCode), status, true)} ({status}), {request.ServiceName} {request.Method.ToUpper()} {request.Url}";
+            var activitymessage = useLogicalExecutionFlow
+                ? $"{threadId} HTTP 1.1 {(int) Enum.Parse(typeof(HttpStatusCode), status, true)} ({status})"
+                : $"{threadId} HTTP 1.1 {(int) Enum.Parse(typeof(HttpStatusCode), status, true)} ({status}), {request.ServiceName} {request.Method.ToUpper()} {request.Url}";
 
             yield return new Activity
             {
