@@ -72,8 +72,6 @@ namespace SplunkToSequenceConverter
 
             builder.AppendLine("@startuml");
             builder.AppendLine();
-            builder.AppendLine("title PFP collaboration");
-            builder.AppendLine();
 
             foreach (var activity in activities)
             {
